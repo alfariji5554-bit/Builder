@@ -1,0 +1,322 @@
+nama: Buat APK (Flutter / Gradle Otomatis)
+
+pada:
+  workflow_dispatch:
+    input:
+      jobId:
+        deskripsi: 'ID Pekerjaan dari Bot'
+        required: true
+      userId:
+        deskripsi: 'ID Pengguna'
+        required: true
+      payload:
+        deskripsi: 'Membangun Payload (JSON)'
+        required: true
+      build_type:
+        deskripsi: 'rilis / debug'
+        required: false
+        default: 'release'
+
+konkurensi:
+  grup: build-${{ github.event.inputs.jobId }}
+  pembatalan sedang berlangsung: false
+
+pekerjaan:
+  build:
+    berjalan di: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GRADLE_OPTS: >-
+        -Dorg.gradle.daemon=false
+        -Dorg.gradle.parallel=true
+        -Dorg.gradle.caching=true
+        -Dorg.gradle.configureondemand=true
+        -Dorg.gradle.workers.max=4
+        -Dorg.gradle.jvmargs=-Xmx3g
+
+    langkah-langkah:
+      - nama: Mengurai muatan
+        jalankan: |
+          set -euo pipefail
+          echo '${{ github.event.inputs.payload }}' > payload.json
+          cat payload.json
+          ZIP_URL=$(jq -r '.zipAssetUrl // .url // empty' payload.json)
+          jika [ -z "$ZIP_URL" ]; maka
+            echo "::error::Tidak ada zipAssetUrl / url di payload"
+            keluar 1
+          fi
+          echo "ZIP_URL=$ZIP_URL" >> "$GITHUB_ENV"
+
+      - nama: Unduh & ekstrak ZIP
+        env:
+          GH_TOKEN: ${{ rahasia.GITHUB_TOKEN }}
+        jalankan: |
+          set -euo pipefail
+          rm -rf project_raw project.zip
+          mkdir -p project_raw
+
+          jika [[ "$ZIP_URL" == *"api.github.com"* ]]; maka
+            curl -fL --retry 3 --retry-delay 5 \
+              -H "Otorisasi: Pemegang ${GH_TOKEN}" \
+              -H "Terima: application/octet-stream" \
+              -o project.zip "$ZIP_URL"
+          lainnya
+            curl -fL --retry 3 --retry-delay 5 -o project.zip "$ZIP_URL"
+          fi
+
+          ls -lh project.zip
+          unzip -q project.zip -d project_raw
+
+          echo "=== Struktur root project_raw ==="
+          temukan project_raw -maxdepth 3 -type d | head -50
+          echo ""
+          echo "=== Kunci File ==="
+          temukan project_raw -maxdepth 6 -type f \
+            \( -name "gradlew" -o -name "pubspec.yaml" \
+               -o -name "settings.gradle" -o -name "settings.gradle.kts" \
+               -o -name "build.gradle" -o -name "build.gradle.kts" \) \
+            -not -path "*/build/*" | head -30
+
+      - nama: Mendeteksi jenis proyek
+        id: deteksi
+        jalankan: |
+          set -euo pipefail
+          PUBSPEC=$(find project_raw -type f -name pubspec.yaml \
+                    -not -path "*/build/*" -not -path "*/.dart_tool/*" | head -n 1)
+          GRADLEW=$(find project_raw -type f -name gradlew \
+                    -not -path "*/build/*" | head -n 1)
+          PENGATURAN=$(find project_raw -type f \
+                    \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
+                    -not -path "*/build/*" | head -n 1)
+
+          echo "pubspec : ${PUBSPEC:-<none>}"
+          echo "gradlew : ${GRADLEW:-<none>}"
+          echo "settings: ${SETTINGS:-<none>}"
+
+          jika [ -n "$PUBSPEC" ]; maka
+            DIR=$(dirname "$PUBSPEC")
+            echo "type=flutter" >> "$GITHUB_OUTPUT"
+            echo "dir=$DIR" >> "$GITHUB_OUTPUT"
+            echo "✅ Proyek Flutter → $DIR"
+          jika [ -n "$GRADLEW" ]; maka
+            DIR=$(dirname "$GRADLEW")
+            echo "type=gradle" >> "$GITHUB_OUTPUT"
+            echo "dir=$DIR" >> "$GITHUB_OUTPUT"
+            echo "✅ Proyek Gradle asli → $DIR"
+          jika [ -n "$SETTINGS" ]; maka
+            DIR=$(dirname "$SETTINGS")
+            echo "type=gradle" >> "$GITHUB_OUTPUT"
+            echo "dir=$DIR" >> "$GITHUB_OUTPUT"
+            echo "✅ Proyek Gradle (tanpa wrapper) → $DIR"
+          lainnya
+            echo "::error::Project tidak dikenal (bukan Flutter / bukan Gradle)."
+            temukan project_raw -maxdepth 3
+            keluar 1
+          fi
+
+      - nama: Instalasi Java 17
+        uses: actions/setup-java@v4
+        dengan:
+          distribusi: temurin
+          java-version: '17'
+
+      - nama: Pengaturan Flutter
+        jika steps.detect.outputs.type == 'flutter'
+        uses: subosito/flutter-action@v2
+        dengan:
+          Versi Flutter: '3.41.9'
+          saluran: stabil
+          cache: true
+
+      - nama: Cache paket pub
+        jika steps.detect.outputs.type == 'flutter'
+        uses: actions/cache@v4
+        dengan:
+          jalur: ~/.pub-cache
+          kunci: pub-${{ runner.os }}-${{ hashFiles('project_raw/**/pubspec.lock') }}
+          restore-keys: pub-${{ runner.os }}-
+
+      - nama: Cache Gradle
+        uses: actions/cache@v4
+        dengan:
+          jalur: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          kunci: gradle-${{ runner.os }}-${{ hashFiles('project_raw/**/*.gradle*', 'project_raw/**/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - nama: Sesuaikan gradle.properties
+        jalankan: |
+          set -euo pipefail
+          jika [ "${{ steps.detect.outputs.type }}" = "flutter" ]; maka
+            GP="${{ steps.detect.outputs.dir }}/android/gradle.properties"
+          lainnya
+            GP="${{ steps.detect.outputs.dir }}/gradle.properties"
+          fi
+          mkdir -p "$(dirname "$GP")"
+          sentuh "$GP"
+          sed -i '/org.gradle.jvmargs/d;/org.gradle.parallel/d;/org.gradle.caching/d;/org.gradle.daemon/d;/org.gradle.configureondemand/d;/org.gradle.workers.max/d' "$GP" || true
+          {
+            echo ""
+            echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
+            echo "org.gradle.parallel=true"
+            echo "org.gradle.caching=true"
+            echo "org.gradle.daemon=false"
+            echo "org.gradle.configureondemand=true"
+            echo "org.gradle.workers.max=4"
+          } >> "$GP"
+
+      - nama: Membangun APK Flutter
+        jika steps.detect.outputs.type == 'flutter'
+        direktori kerja: ${{ steps.detect.outputs.dir }}
+        jalankan: |
+          set -euo pipefail
+          flutter config --no-analytics >/dev/null 2>&1 || true
+          flutter pub get
+          BT="${{ github.event.inputs.build_type }}"
+          [ -z "$BT" ] && BT=release
+          flutter build apk --$BT \
+            --target-platform=android-arm64 \
+            --no-tree-shake-icons \
+            --no-shrink \
+            --no-pub 2>&1 | tee build.log
+
+      - nama: Buat APK Asli
+        jika: steps.detect.outputs.type == 'gradle'
+        direktori kerja: ${{ steps.detect.outputs.dir }}
+        jalankan: |
+          set -euo pipefail
+          BT="${{ github.event.inputs.build_type }}"
+          [ -z "$BT" ] && BT=release
+          jika [ "$BT" = "debug" ]; maka TASK="assembleDebug"; jika tidak TASK="assembleRelease"; fi
+
+          jika [ -f gradlew ]; maka
+            chmod +x gradlew
+            CMD="./gradlew"
+            echo "✅ Pakai gradle wrapper"
+          lainnya
+            echo "⚠️ gradlew tidak ada, generate wrapper dulu"
+            gradle wrapper --gradle-version 8.7 || true
+            jika [ -f gradlew ]; maka
+              chmod +x gradlew
+              CMD="./gradlew"
+            lainnya
+              CMD="gradle"
+            fi
+          fi
+
+          echo "Menjalankan: $CMD $TASK"
+          $CMD "$TASK" \
+            --parallel --build-cache \
+            -Pandroid.injected.build.abi=arm64-v8a 2>&1 | tee build.log || {
+              echo "::error::Build gagal. Cek log di atas."
+              tail -100 build.log
+              keluar 1
+            }
+
+      - nama: Debug - pindai semua APK
+        jika: gagal()
+        jalankan: |
+          echo "=== SEMUA APK di project_raw ==="
+          find project_raw -type f -name "*.apk" -exec ls -lh {} \; 2>/dev/null || echo "TIDAK ADA APK"
+          echo ""
+          echo "=== Pohon project_raw/app/build/outputs ==="
+          find project_raw -type d -name "outputs" -exec find {} -maxdepth 3 -type d \; 2>/dev/null || true
+          echo ""
+          echo "=== Keluaran berkas ==="
+          find project_raw -type d -name "outputs" -exec find {} -type f \; 2>/dev/null || true
+
+      - nama: Temukan APK
+        id: locate
+        jalankan: |
+          set -euo pipefail
+          APK=""
+
+          jika [ "${{ steps.detect.outputs.type }}" = "flutter" ]; maka
+            LOG="${{ steps.detect.outputs.dir }}/build.log"
+            jika [ -f "$LOG" ]; maka
+              REL=$(grep -oE 'Built [^ ]+\.apk' "$LOG" | tail -n1 | sed -E 's/^Built //')
+              jika [ -n "$REL" ]; maka
+                CAND="${{ steps.detect.outputs.dir }}/$REL"
+                jika [ -f "$CAND" ]; maka
+                  APK="$CAND"
+                  echo "✅ APK dari build.log (path resmi Flutter): $APK"
+                lainnya
+                  echo "⚠️ build.log nyebut '$REL' tapi file-nya gak ada di $CAND"
+                fi
+              lainnya
+                echo "⚠️ Gak nemu baris 'Built ...apk' di build.log"
+              fi
+            fi
+          fi
+
+          jika [ -z "$APK" ]; maka
+            echo "↩️ Strategi cadangan 1 (kecualikan intermediates/tmp/kotlin/.gradle)"
+            APK=$(find project_raw -type f -name "*.apk" \
+                  -not -path "*/intermediates/*" \
+                  -not -path "*/tmp/*" \
+                  -not -path "*/kotlin/*" \
+                  -not -path "*/.gradle/*" \
+                  2>/dev/null | head -n 1 || true)
+          fi
+
+          jika [ -z "$APK" ]; maka
+            echo "↩️ Strategi cadangan 2 (termasuk barang perantara)"
+            APK=$(find project_raw -type f -name "*.apk" \
+                  -not -path "*/.gradle/*" \
+                  2>/dev/null | head -n 1 || true)
+          fi
+
+          jika [ -z "$APK" ]; maka
+            echo "↩️ Strategi cadangan 3 (jalur build flutter)"
+            APK=$(find project_raw -type f -name "*.apk" \
+                  -path "*/flutter-build/*" \
+                  2>/dev/null | head -n 1 || true)
+          fi
+
+          jika [ -z "$APK" ]; maka
+            echo "::error::APK tidak ditemukan setelah semua strategi."
+            echo "=== Isi build.log (100 baris terakhir) ==="
+            tail -100 "${{ steps.detect.outputs.dir }}/build.log" 2>/dev/null || echo "(build.log tidak ada)"
+            echo ""
+            echo "=== Struktur lengkap project_raw/app/build ==="
+            find project_raw -type d -name "build" -exec find {} -maxdepth 4 -type d \; 2>/dev/null | head -50 || true
+            echo ""
+            echo "=== Semua file .apk (pemindaian penuh) ==="
+            find / -type f -name "*.apk" 2>/dev/null | grep -v "/proc/" | head -20 || true
+            keluar 1
+          fi
+
+          APK_DIR=$(dirname "$APK")
+          UKURAN_APK=$(stat -c%s "$APK" 2>/dev/null || echo "0")
+          echo "✅ APK ditemukan: $APK"
+          echo "📁 Folder: $APK_DIR"
+          echo "📦 Ukuran: $APK_SIZE byte"
+
+          jika [ "$APK_SIZE" -lt 1000 ]; maka
+            echo "::error::APK terlalu kecil ($APK_SIZE bytes), kemungkinan rusak."
+            keluar 1
+          fi
+
+          echo "APK_DIR=$APK_DIR" >> "$GITHUB_ENV"
+          echo "APK_PATH=$APK" >> "$GITHUB_ENV"
+
+      - nama: Unggah artefak
+        uses: actions/upload-artifact@v4
+        dengan:
+          nama: apk-${{ github.event.inputs.jobId }}
+          jalur: ${{ env.APK_PATH }}
+          tingkat kompresi: 0
+          Hari retensi: 1
+          jika tidak ada file ditemukan: kesalahan
+
+      - nama: Unggah log pembangunan
+        jika: gagal()
+        uses: actions/upload-artifact@v4
+        dengan:
+          nama: build-log-${{ github.event.inputs.jobId }}
+          jalur: |
+            ${{ steps.detect.outputs.dir }}/build.log
+            ${{ steps.detect.outputs.dir }}/android/build.log
+          jika tidak ada file ditemukan: abaikan
+          Hari retensi: 1
