@@ -124,7 +124,7 @@ jobs:
         if: steps.detect.outputs.type == 'flutter'
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: 'any'
+          flutter-version: '3.41.9'
           channel: stable
           cache: true
 
@@ -178,6 +178,7 @@ jobs:
           flutter build apk --$BT \
             --target-platform=android-arm64 \
             --no-tree-shake-icons \
+            --no-shrink \
             --no-pub 2>&1 | tee build.log
 
       - name: Build Native APK
