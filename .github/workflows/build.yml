@@ -124,7 +124,7 @@ pekerjaan:
         direktori kerja: ${{ env.PROJECT_DIR }}
         jalankan: |
           jika [ -f "pubspec.yaml" ]; maka
-            flutter build apk --${{ github.event.inputs.build_type }}
+            flutter build apk --release --${{ github.event.inputs.build_type }} --tree-shake-icons --split-debug-info=build/symbols --obfuscate --target-platform=android-arm,android-arm64
           lainnya
             GRADLE_PATH=$(find . -name "gradlew" | head -n 1)
             GRADLE_DIR=$(dirname "$GRADLE_PATH")
