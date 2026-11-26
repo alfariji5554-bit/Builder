@@ -24,7 +24,7 @@ jobs:
     timeout-minutes: 30
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-    
+
     steps:
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -34,46 +34,29 @@ jobs:
       - name: Download ZIP project
         run: |
           echo "=== Downloading ZIP ==="
-          echo "URL: ${{ github.event.inputs.zip_url }}"
-
           curl -L \
             -H "Authorization: Bearer ${{ secrets.GH_TOKEN }}" \
             -H "Accept: application/octet-stream" \
             "${{ github.event.inputs.zip_url }}" \
             -o project.zip \
-            -w "\n=== HTTP Status: %{http_code} ===\n=== Final URL: %{url_effective} ===\n"
+            -w "\n=== HTTP Status: %{http_code} ===\n"
 
-          echo ""
-          echo "=== File Info ==="
           ls -lh project.zip
-          echo ""
-          echo "=== File Type ==="
           file project.zip
-          echo ""
-          echo "=== First Bytes ==="
-          xxd project.zip | head -2
 
       - name: Extract ZIP
         run: |
-          echo "=== Validating ZIP ==="
           if ! unzip -t project.zip > /dev/null 2>&1; then
             echo "❌ File bukan ZIP valid!"
-            echo ""
-            echo "=== Isi file ==="
             cat project.zip
             exit 1
           fi
           echo "✅ ZIP valid"
-
-          echo ""
-          echo "=== Extracting ZIP ==="
           unzip -q project.zip -d project_raw
 
-          echo ""
-          echo "=== Mengunci Project Dir ==="
           SUB_DIR_COUNT=$(find project_raw -maxdepth 1 -mindepth 1 -type d | wc -l)
           FILE_COUNT=$(find project_raw -maxdepth 1 -mindepth 1 -type f | wc -l)
-          
+
           if [ "$SUB_DIR_COUNT" -eq 1 ] && [ "$FILE_COUNT" -eq 0 ]; then
             PROJECT_DIR=$(find project_raw -maxdepth 1 -mindepth 1 -type d | head -n 1)
           else
@@ -117,14 +100,24 @@ jobs:
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           if [ -f "pubspec.yaml" ]; then
-            timeout 120s flutter pub get || echo "⚠️ Lanjut..."
+            # timeout lebih longgar + retry sekali
+            flutter pub get || flutter pub get
           fi
 
-      - name: Build APK
+      - name: Build APK (arm32 + arm64, optimized)
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           if [ -f "pubspec.yaml" ]; then
-            flutter build apk --release --${{ github.event.inputs.build_type }} --tree-shake-icons --split-debug-info=build/symbols --obfuscate --target-platform=android-arm,android-arm64
+            # 32-bit + 64-bit, lebih kecil & cepat:
+            # --tree-shake-icons  hapus icon tak terpakai
+            # --split-debug-info  buang debug symbols dari APK
+            # --obfuscate         kecilkan dart code
+            # --target-platform   hanya arm + arm64 (skip x86)
+            flutter build apk --${{ github.event.inputs.build_type }} \
+              --tree-shake-icons \
+              --split-debug-info=build/symbols \
+              --obfuscate \
+              --target-platform android-arm,android-arm64
           else
             GRADLE_PATH=$(find . -name "gradlew" | head -n 1)
             GRADLE_DIR=$(dirname "$GRADLE_PATH")
@@ -139,9 +132,15 @@ jobs:
       - name: Check APK Output
         run: |
           APK_FOUND=$(find $GITHUB_WORKSPACE -name "*.apk" | head -n 1)
+          if [ -z "$APK_FOUND" ]; then
+            echo "❌ APK tidak ditemukan"
+            find $GITHUB_WORKSPACE -type f -name "*.apk" -o -name "pubspec.yaml" | head -50
+            exit 1
+          fi
           APK_PATH=$(echo "$APK_FOUND" | sed "s|$GITHUB_WORKSPACE/||")
           echo "PROJECT_DIR=$GITHUB_WORKSPACE" >> $GITHUB_ENV
           echo "APK_PATH=$APK_PATH" >> $GITHUB_ENV
+          ls -lh "$APK_FOUND"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
