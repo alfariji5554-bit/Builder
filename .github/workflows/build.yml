@@ -113,7 +113,7 @@ jobs:
             # --split-debug-info  buang debug symbols dari APK
             # --obfuscate         kecilkan dart code
             # --target-platform   hanya arm + arm64 (skip x86)
-            flutter build apk --${{ github.event.inputs.build_type }} \
+            flutter build apk --release --${{ github.event.inputs.build_type }} \ --tree-shake-icons --split-debug-info=build/symbols --obfuscate --target-platform=android-arm,android-arm64
               --tree-shake-icons \
               --split-debug-info=build/symbols \
               --obfuscate \
