@@ -40,7 +40,6 @@ jobs:
             "${{ github.event.inputs.zip_url }}" \
             -o project.zip \
             -w "\n=== HTTP Status: %{http_code} ===\n"
-
           ls -lh project.zip
           file project.zip
 
@@ -48,15 +47,11 @@ jobs:
         run: |
           if ! unzip -t project.zip > /dev/null 2>&1; then
             echo "❌ File bukan ZIP valid!"
-            cat project.zip
             exit 1
           fi
-          echo "✅ ZIP valid"
           unzip -q project.zip -d project_raw
-
           SUB_DIR_COUNT=$(find project_raw -maxdepth 1 -mindepth 1 -type d | wc -l)
           FILE_COUNT=$(find project_raw -maxdepth 1 -mindepth 1 -type f | wc -l)
-
           if [ "$SUB_DIR_COUNT" -eq 1 ] && [ "$FILE_COUNT" -eq 0 ]; then
             PROJECT_DIR=$(find project_raw -maxdepth 1 -mindepth 1 -type d | head -n 1)
           else
@@ -100,23 +95,16 @@ jobs:
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           if [ -f "pubspec.yaml" ]; then
-            # timeout lebih longgar + retry sekali
             flutter pub get || flutter pub get
           fi
 
-      - name: Build APK (arm32 + arm64, optimized)
+      - name: Build APK
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           if [ -f "pubspec.yaml" ]; then
-            # 32-bit + 64-bit, lebih kecil & cepat:
-            # --tree-shake-icons  hapus icon tak terpakai
-            # --split-debug-info  buang debug symbols dari APK
-            # --obfuscate         kecilkan dart code
-            # --target-platform   hanya arm + arm64 (skip x86)
-            flutter build apk --release --${{ github.event.inputs.build_type }} \ --tree-shake-icons --split-debug-info=build/symbols --obfuscate --target-platform=android-arm,android-arm64
+            # arm32 + arm64, tree-shake icons (lebih kecil). Tanpa --obfuscate agar plugin aman.
+            flutter build apk --${{ github.event.inputs.build_type }} \
               --tree-shake-icons \
-              --split-debug-info=build/symbols \
-              --obfuscate \
               --target-platform android-arm,android-arm64
           else
             GRADLE_PATH=$(find . -name "gradlew" | head -n 1)
@@ -134,7 +122,6 @@ jobs:
           APK_FOUND=$(find $GITHUB_WORKSPACE -name "*.apk" | head -n 1)
           if [ -z "$APK_FOUND" ]; then
             echo "❌ APK tidak ditemukan"
-            find $GITHUB_WORKSPACE -type f -name "*.apk" -o -name "pubspec.yaml" | head -50
             exit 1
           fi
           APK_PATH=$(echo "$APK_FOUND" | sed "s|$GITHUB_WORKSPACE/||")
