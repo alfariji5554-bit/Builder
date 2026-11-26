@@ -103,7 +103,7 @@ jobs:
         run: |
           if [ -f "pubspec.yaml" ]; then
             # arm32 + arm64, tree-shake icons (lebih kecil). Tanpa --obfuscate agar plugin aman.
-            flutter build apk --${{ github.event.inputs.build_type }} \
+            flutter build apk --release --${{ github.event.inputs.build_type }} \ --tree-shake-icons --target-platform=android-arm,android-arm64
               --tree-shake-icons \
               --target-platform android-arm,android-arm64
           else
