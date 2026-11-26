@@ -124,7 +124,7 @@ jobs:
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           if [ -f "pubspec.yaml" ]; then
-            flutter build apk --${{ github.event.inputs.build_type }}
+            flutter build apk --release --${{ github.event.inputs.build_type }} --tree-shake-icons --target-platform=android-arm64 --split-debug-info=build/symbols --obfuscate
           else
             GRADLE_PATH=$(find . -name "gradlew" | head -n 1)
             GRADLE_DIR=$(dirname "$GRADLE_PATH")
