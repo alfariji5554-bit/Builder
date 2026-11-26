@@ -1,152 +1,152 @@
-name: Build Flutter APK
+nama: Membangun APK Flutter
 
-on:
+pada:
   workflow_dispatch:
-    inputs:
+    input:
       zip_url:
-        description: "URL download ZIP project Flutter"
+        deskripsi: "URL untuk mengunduh proyek ZIP Flutter"
         required: true
       tag:
-        description: "Tag build"
+        deskripsi: "Pembuatan tag"
         required: true
       build_type:
-        description: "debug / release"
+        deskripsi: "debug / rilis"
         required: true
         default: "release"
       only_analyze:
-        description: "Hanya jalankan analyze (true/false)"
+        deskripsi: "Hanya jalankan analisa (benar/salah)"
         required: false
         default: "false"
 
-jobs:
+pekerjaan:
   build:
-    runs-on: ubuntu-latest
+    berjalan di: ubuntu-latest
     timeout-minutes: 30
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
     
-    steps:
-      - name: Setup Node.js
+    langkah-langkah:
+      - nama: Pengaturan Node.js
         uses: actions/setup-node@v4
-        with:
-          node-version: "24"
+        dengan:
+          versi node: "24"
 
-      - name: Download ZIP project
-        run: |
-          echo "=== Downloading ZIP ==="
+      - nama: Unduh proyek ZIP
+        jalankan: |
+          echo "=== Mengunduh ZIP ==="
           echo "URL: ${{ github.event.inputs.zip_url }}"
 
           curl -L \
-            -H "Authorization: Bearer ${{ secrets.GH_TOKEN }}" \
-            -H "Accept: application/octet-stream" \
+            -H "Otorisasi: Pemegang ${{ secrets.GH_TOKEN }}" \
+            -H "Terima: application/octet-stream" \
             "${{ github.event.inputs.zip_url }}" \
             -o project.zip \
-            -w "\n=== HTTP Status: %{http_code} ===\n=== Final URL: %{url_effective} ===\n"
+            -w "\n=== Status HTTP: %{http_code} ===\n=== URL Akhir: %{url_effective} ===\n"
 
           echo ""
-          echo "=== File Info ==="
+          echo "=== Informasi File ==="
           ls -lh project.zip
           echo ""
-          echo "=== File Type ==="
+          echo "=== Jenis File ==="
           file project.zip
           echo ""
-          echo "=== First Bytes ==="
-          xxd project.zip | head -2
+          echo "=== Byte Pertama ==="
+          proyek xxd.zip | kepala -2
 
-      - name: Extract ZIP
-        run: |
-          echo "=== Validating ZIP ==="
-          if ! unzip -t project.zip > /dev/null 2>&1; then
+      - nama: Ekstrak ZIP
+        jalankan: |
+          echo "=== Memvalidasi ZIP ==="
+          jika ! unzip -t project.zip > /dev/null 2>&1; maka
             echo "❌ File bukan ZIP valid!"
             echo ""
-            echo "=== Isi file ==="
+            echo "=== File Isi ==="
             cat project.zip
-            exit 1
+            keluar 1
           fi
-          echo "✅ ZIP valid"
+          echo "✅ Kode pos valid"
 
           echo ""
-          echo "=== Extracting ZIP ==="
+          echo "=== Mengekstrak ZIP ==="
           unzip -q project.zip -d project_raw
 
           echo ""
-          echo "=== Mengunci Project Dir ==="
+          echo "=== Mengunci Dir Proyek ==="
           SUB_DIR_COUNT=$(find project_raw -maxdepth 1 -mindepth 1 -type d | wc -l)
-          FILE_COUNT=$(find project_raw -maxdepth 1 -mindepth 1 -type f | wc -l)
+          JUMLAH_FILE=$(find project_raw -maxdepth 1 -mindepth 1 -type f | wc -l)
           
-          if [ "$SUB_DIR_COUNT" -eq 1 ] && [ "$FILE_COUNT" -eq 0 ]; then
+          jika [ "$SUB_DIR_COUNT" -eq 1 ] && [ "$FILE_COUNT" -eq 0 ]; maka
             PROJECT_DIR=$(find project_raw -maxdepth 1 -mindepth 1 -type d | head -n 1)
-          else
+          lainnya
             PROJECT_DIR="project_raw"
           fi
           echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
 
-      - name: Setup Java
+      - nama: Pengaturan Java
         uses: actions/setup-java@v4
-        with:
-          distribution: "temurin"
+        dengan:
+          distribusi: "temurin"
           java-version: "17"
 
-      - name: Setup Flutter
+      - nama: Pengaturan Flutter
         uses: subosito/flutter-action@main
-        with:
-          flutter-version: "3.41.9"
-          channel: "stable"
+        dengan:
+          Versi Flutter: "3.41.9"
+          saluran: "stabil"
           cache: true
 
-      - name: Analyze Project Code
-        working-directory: ${{ env.PROJECT_DIR }}
-        run: |
-          if [ -f "pubspec.yaml" ]; then
+      - nama: Analisis Kode Proyek
+        direktori kerja: ${{ env.PROJECT_DIR }}
+        jalankan: |
+          jika [ -f "pubspec.yaml" ]; maka
             flutter analyze > analyze_report.txt 2>&1 || true
             echo "[RESULT_ANALYZE]"
             cat analyze_report.txt
             echo "[END_RESULT_ANALYZE]"
             rm -f analyze_report.txt
-          else
+          lainnya
             echo "[RESULT_ANALYZE]"
             echo "❌ pubspec.yaml tidak ditemukan."
             echo "[END_RESULT_ANALYZE]"
           fi
 
-      - name: Stop if Analyze Only
-        if: ${{ github.event.inputs.only_analyze == 'true' }}
-        run: exit 1
+      - nama: Berhenti jika Hanya Analisis
+        jika: ${{ github.event.inputs.only_analyze == 'true' }}
+        jalankan: keluar 1
 
-      - name: Get dependencies
-        working-directory: ${{ env.PROJECT_DIR }}
-        run: |
-          if [ -f "pubspec.yaml" ]; then
+      - nama: Dapatkan dependensi
+        direktori kerja: ${{ env.PROJECT_DIR }}
+        jalankan: |
+          jika [ -f "pubspec.yaml" ]; maka
             timeout 120s flutter pub get || echo "⚠️ Lanjut..."
           fi
 
-      - name: Build APK
-        working-directory: ${{ env.PROJECT_DIR }}
-        run: |
-          if [ -f "pubspec.yaml" ]; then
+      - nama: Buat APK
+        direktori kerja: ${{ env.PROJECT_DIR }}
+        jalankan: |
+          jika [ -f "pubspec.yaml" ]; maka
             flutter build apk --${{ github.event.inputs.build_type }}
-          else
+          lainnya
             GRADLE_PATH=$(find . -name "gradlew" | head -n 1)
             GRADLE_DIR=$(dirname "$GRADLE_PATH")
             cd "$GRADLE_DIR" && chmod +x gradlew
-            if [ "${{ github.event.inputs.build_type }}" = "debug" ]; then
+            jika [ "${{ github.event.inputs.build_type }}" = "debug" ]; maka
               ./gradlew assembleDebug
-            else
+            lainnya
               ./gradlew assembleRelease
             fi
           fi
 
-      - name: Check APK Output
-        run: |
-          APK_FOUND=$(find $GITHUB_WORKSPACE -name "*.apk" | head -n 1)
+      - nama: Periksa Output APK
+        jalankan: |
+          APK_DITEMUKAN=$(find $GITHUB_WORKSPACE -name "*.apk" | head -n 1)
           APK_PATH=$(echo "$APK_FOUND" | sed "s|$GITHUB_WORKSPACE/||")
           echo "PROJECT_DIR=$GITHUB_WORKSPACE" >> $GITHUB_ENV
           echo "APK_PATH=$APK_PATH" >> $GITHUB_ENV
 
-      - name: Upload APK artifact
+      - nama: Unggah artefak APK
         uses: actions/upload-artifact@v4
-        with:
-          name: flutter-${{ github.event.inputs.build_type }}-${{ github.event.inputs.tag }}
-          path: ${{ env.PROJECT_DIR }}/${{ env.APK_PATH }}
-          retention-days: 1
-          if-no-files-found: error
+        dengan:
+          nama: flutter-${{ github.event.inputs.build_type }}-${{ github.event.inputs.tag }}
+          jalur: ${{ env.PROJECT_DIR }}/${{ env.APK_PATH }}
+          Hari retensi: 1
+          jika tidak ada file ditemukan: kesalahan
